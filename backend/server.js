@@ -34,7 +34,16 @@ app.use('/uploads', express.static('uploads'));
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'ChrisChat API is running' });
+  const mongoose = require('mongoose');
+  res.json({
+    status: 'ChrisChat API is running',
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    env: {
+      MONGODB_URI: process.env.MONGODB_URI ? 'SET' : 'NOT SET',
+      JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+      PORT: process.env.PORT || '5000 (default)',
+    }
+  });
 });
 
 // Routes
