@@ -130,6 +130,6 @@ setInterval(async () => {
 }, 60000); // Check every minute
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`ChrisChat server running on port ${PORT}`);
 });
