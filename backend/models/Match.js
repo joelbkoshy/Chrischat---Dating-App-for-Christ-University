@@ -17,10 +17,24 @@ const matchSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isSuperLike: {
+      type: Boolean,
+      default: false,
+    },
+    expiresAt: {
+      type: Date,
+      default: () => new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
+    },
+    hasMessages: {
+      type: Boolean,
+      default: false,
+    },
+    lastMessageAt: Date,
   },
   { timestamps: true }
 );
 
 matchSchema.index({ users: 1 });
+matchSchema.index({ expiresAt: 1 });
 
 module.exports = mongoose.model('Match', matchSchema);

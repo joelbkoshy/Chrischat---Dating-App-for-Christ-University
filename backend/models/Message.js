@@ -14,13 +14,21 @@ const messageSchema = new mongoose.Schema(
     },
     text: {
       type: String,
-      required: true,
       maxlength: 1000,
+      default: '',
     },
+    type: {
+      type: String,
+      enum: ['text', 'image', 'video', 'icebreaker'],
+      default: 'text',
+    },
+    imageUrl: String,
+    videoUrl: String,
     read: {
       type: Boolean,
       default: false,
     },
+    readAt: Date,
   },
   { timestamps: true }
 );

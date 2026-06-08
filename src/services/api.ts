@@ -1,8 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-// Change this to your machine's IP when testing on a physical device
-const API_URL = 'http://10.0.2.2:5000/api'; // Android emulator
-// const API_URL = 'http://localhost:5000/api'; // iOS simulator
+// Set this to your deployed backend URL when going live
+// e.g. 'https://chrischat-backend.onrender.com'
+const PRODUCTION_URL = '';
+
+const getBaseUrl = () => {
+  if (PRODUCTION_URL) return PRODUCTION_URL;
+  // Local development fallback
+  return Platform.OS === 'web' ? 'http://localhost:5000' : 'http://10.4.203.24:5000';
+};
+
+const BASE_URL = getBaseUrl();
+const API_URL = `${BASE_URL}/api`;
+
+export const SOCKET_URL = BASE_URL;
+
+export const getImageUrl = (path: string) => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${BASE_URL}${path}`;
+};
 
 class ApiService {
   private token: string | null = null;
@@ -50,6 +68,29 @@ class ApiService {
     return data;
   }
 
+  private async uploadRequest(endpoint: string, formData: FormData) {
+    const token = await this.getToken();
+    const headers: Record<string, string> = {};
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Upload failed');
+    }
+
+    return data;
+  }
+
   // Auth
   async register(userData: { name: string; email: string; password: string; department: string }) {
     return this.request('/auth/register', {
@@ -85,13 +126,74 @@ class ApiService {
     return this.request(`/profile/${encodeURIComponent(id)}`);
   }
 
+  async uploadPhotos(formData: FormData) {
+    return this.uploadRequest('/profile/photos', formData);
+  }
+
+  async deletePhoto(index: number) {
+    return this.request(`/profile/photos/${index}`, { method: 'DELETE' });
+  }
+
+  async toggleVisibility() {
+    return this.request('/profile/visibility', { method: 'POST' });
+  }
+
+  async getBadges() {
+    return this.request('/profile/badges');
+  }
+
+  async blockUser(id: string) {
+    return this.request(`/profile/block/${encodeURIComponent(id)}`, { method: 'POST' });
+  }
+
+  async unblockUser(id: string) {
+    return this.request(`/profile/unblock/${encodeURIComponent(id)}`, { method: 'POST' });
+  }
+
+  async reportUser(id: string, reason: string, description?: string) {
+    return this.request(`/profile/report/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, description }),
+    });
+  }
+
+  async getBlockedUsers() {
+    return this.request('/profile/blocked');
+  }
+
   // Match / Discover
-  async getDiscoverProfiles() {
-    return this.request('/match/discover');
+  async getDiscoverProfiles(filters?: {
+    department?: string;
+    year?: string;
+    campus?: string;
+    minAge?: number;
+    maxAge?: number;
+    mode?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val !== undefined && val !== '') params.append(key, String(val));
+      });
+    }
+    const query = params.toString();
+    return this.request(`/match/discover${query ? `?${query}` : ''}`);
+  }
+
+  async getDailyPick() {
+    return this.request('/match/daily-pick');
   }
 
   async likeUser(id: string) {
     return this.request(`/match/like/${encodeURIComponent(id)}`, { method: 'POST' });
+  }
+
+  async superLikeUser(id: string) {
+    return this.request(`/match/superlike/${encodeURIComponent(id)}`, { method: 'POST' });
+  }
+
+  async undoSwipe() {
+    return this.request('/match/undo', { method: 'POST' });
   }
 
   async dislikeUser(id: string) {
@@ -100,6 +202,18 @@ class ApiService {
 
   async getMatches() {
     return this.request('/match');
+  }
+
+  async unmatch(matchId: string) {
+    return this.request(`/match/unmatch/${encodeURIComponent(matchId)}`, { method: 'POST' });
+  }
+
+  async boostProfile() {
+    return this.request('/match/boost', { method: 'POST' });
+  }
+
+  async getCompatibility(id: string) {
+    return this.request(`/match/compatibility/${encodeURIComponent(id)}`);
   }
 
   // Chat
@@ -112,6 +226,82 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ text }),
     });
+  }
+
+  async sendImageMessage(matchId: string, formData: FormData) {
+    return this.uploadRequest(`/chat/${encodeURIComponent(matchId)}/image`, formData);
+  }
+
+  async sendVideoMessage(matchId: string, formData: FormData) {
+    return this.uploadRequest(`/chat/${encodeURIComponent(matchId)}/video`, formData);
+  }
+
+  async markMessagesRead(matchId: string) {
+    return this.request(`/chat/${encodeURIComponent(matchId)}/read`, { method: 'POST' });
+  }
+
+  async getIcebreakers() {
+    return this.request('/chat/icebreakers');
+  }
+
+  // Events
+  async getEvents(filters?: { campus?: string; category?: string }) {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val) params.append(key, val);
+      });
+    }
+    const query = params.toString();
+    return this.request(`/events${query ? `?${query}` : ''}`);
+  }
+
+  async createEvent(data: {
+    title: string;
+    description: string;
+    date: string;
+    location: string;
+    campus: string;
+    category?: string;
+  }) {
+    return this.request('/events', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rsvpEvent(id: string) {
+    return this.request(`/events/${encodeURIComponent(id)}/rsvp`, { method: 'POST' });
+  }
+
+  async getEventAttendees(id: string) {
+    return this.request(`/events/${encodeURIComponent(id)}/attendees`);
+  }
+
+  // Confessions
+  async getConfessions(page = 1, filters?: { campus?: string; category?: string }) {
+    const params = new URLSearchParams({ page: String(page) });
+    if (filters) {
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val) params.append(key, val);
+      });
+    }
+    return this.request(`/confessions?${params.toString()}`);
+  }
+
+  async postConfession(data: { text: string; category?: string; campus?: string }) {
+    return this.request('/confessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async likeConfession(id: string) {
+    return this.request(`/confessions/${encodeURIComponent(id)}/like`, { method: 'POST' });
+  }
+
+  async reportConfession(id: string) {
+    return this.request(`/confessions/${encodeURIComponent(id)}/report`, { method: 'POST' });
   }
 }
 

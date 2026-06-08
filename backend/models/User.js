@@ -70,6 +70,64 @@ const userSchema = new mongoose.Schema(
     },
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     dislikes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    superLikes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    superLikesRemaining: {
+      type: Number,
+      default: 3,
+    },
+    superLikesResetDate: {
+      type: Date,
+      default: Date.now,
+    },
+    lastSwipe: {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      action: { type: String, enum: ['like', 'dislike', 'superlike'] },
+      timestamp: Date,
+    },
+    blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    isVisible: {
+      type: Boolean,
+      default: true,
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    isBoosted: {
+      type: Boolean,
+      default: false,
+    },
+    boostExpiresAt: Date,
+    profilePrompts: [
+      {
+        question: { type: String, maxlength: 100 },
+        answer: { type: String, maxlength: 200 },
+      },
+    ],
+    badges: [
+      {
+        name: String,
+        earnedAt: { type: Date, default: Date.now },
+      },
+    ],
+    streaks: {
+      type: Map,
+      of: {
+        count: { type: Number, default: 0 },
+        lastMessageDate: Date,
+      },
+      default: {},
+    },
+    mode: {
+      type: String,
+      enum: ['dating', 'study-buddy'],
+      default: 'dating',
+    },
+    studySubjects: {
+      type: [String],
+      default: [],
+    },
     lastActive: {
       type: Date,
       default: Date.now,

@@ -8,7 +8,13 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chrischat.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ChrisChat needs camera access to take photos and videos.",
+        "NSPhotoLibraryUsageDescription": "ChrisChat needs photo library access to upload pictures.",
+        "NSMicrophoneUsageDescription": "ChrisChat needs microphone access to record videos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +23,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.chrischat.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -25,7 +32,15 @@
     "plugins": [
       "expo-router",
       "expo-splash-screen",
-      "expo-font"
+      "expo-font",
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ChrisChat needs access to your photos to upload profile pictures and share media.",
+          "cameraPermission": "ChrisChat needs access to your camera to take photos and videos."
+        }
+      ]
     ]
   }
 }
