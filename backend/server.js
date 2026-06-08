@@ -54,10 +54,6 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/confessions', confessionRoutes);
 
-app.get('/', (req, res) => {
-  res.json({ message: 'ChrisChat API is running' });
-});
-
 // Socket.IO for real-time chat
 const onlineUsers = new Map();
 
