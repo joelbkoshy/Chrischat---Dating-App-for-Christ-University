@@ -24,7 +24,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.chrischat.app"
+      "package": "com.chrischat.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,6 +44,12 @@
           "cameraPermission": "ChrisChat needs access to your camera to take photos and videos."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "04d65b01-9bca-4e63-854e-f32ce9735a71"
+      }
+    }
   }
 }

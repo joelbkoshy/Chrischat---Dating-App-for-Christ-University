@@ -2,8 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // Set this to your deployed backend URL when going live
-// e.g. 'https://chrischat-backend.onrender.com'
-const PRODUCTION_URL = '';
+// Replace with your actual Railway URL after deploying
+const PRODUCTION_URL = 'https://chrischat-backend-production.up.railway.app';
 
 const getBaseUrl = () => {
   if (PRODUCTION_URL) return PRODUCTION_URL;
