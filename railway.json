@@ -1,11 +1,10 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "buildCommand": "cd backend && npm install",
-    "watchPatterns": ["backend/**"]
+    "buildCommand": "npm install"
   },
   "deploy": {
-    "startCommand": "cd backend && npm start",
+    "startCommand": "npm start",
     "healthcheckPath": "/",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
