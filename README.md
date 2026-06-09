@@ -1,8 +1,8 @@
 # ChrisChat — Dating App for Christ University
 
-A full-featured mobile dating app built for Christ University students. Swipe, match, chat, share photos/videos, attend campus events, and post anonymous confessions.
+A full-featured mobile dating app built for Christ University students. Swipe, match, chat, share photos/videos, make video calls, attend campus events, and post anonymous confessions.
 
-Built with React Native (Expo SDK 56), Node.js, MongoDB, and Socket.IO.
+Built with React Native (Expo SDK 56), Node.js, MongoDB, Socket.IO, and WebRTC.
 
 ---
 
@@ -11,7 +11,9 @@ Built with React Native (Expo SDK 56), Node.js, MongoDB, and Socket.IO.
 ### Core
 - **Swipe to Match** — Tinder-style card swiping with like, dislike, and super like
 - **Real-time Chat** — Instant messaging with typing indicators, read receipts, and icebreaker prompts
-- **Photo & Video Uploads** — Pick from gallery or camera, send media in chat, upload profile photos
+- **End-to-End Encryption** — All text messages are encrypted using NaCl (Curve25519 + XSalsa20-Poly1305)
+- **Video Calling** — 1-on-1 WebRTC video calls with mute, camera toggle, and flip camera
+- **Photo & Video Uploads** — Pick from gallery or camera, send media in chat, upload profile photos (cross-platform web + mobile)
 - **Profile Setup** — Bio, interests, department, campus, year, gender preferences, profile prompts
 
 ### Discovery
@@ -23,11 +25,13 @@ Built with React Native (Expo SDK 56), Node.js, MongoDB, and Socket.IO.
 - **Boost** — Appear at the top of discovery for 30 minutes
 
 ### Chat
+- **End-to-End Encryption** — Messages encrypted client-side; server never sees plaintext
 - **Typing Indicators** — See when the other person is typing
 - **Read Receipts** — ✓✓ Read status on messages
 - **Image & Video Messages** — Send photos and videos in chat with inline playback
 - **Icebreaker Prompts** — 12 conversation starters to break the ice
 - **Chat Streaks** — Track consecutive daily conversations
+- **Video Calls** — Tap the camera icon in chat to start a WebRTC video call
 
 ### Social
 - **Campus Events** — Create and RSVP to events, filter by campus and category
@@ -35,6 +39,7 @@ Built with React Native (Expo SDK 56), Node.js, MongoDB, and Socket.IO.
 - **Badges** — Earn badges: First Swipe, First Match, Profile Pro, 10 Conversations
 
 ### Safety
+- **End-to-End Encryption** — NaCl public-key cryptography; keys stored securely on device
 - **Block & Report** — Block users and report with categorized reasons
 - **Auto-hide Confessions** — Confessions with 5+ reports are auto-hidden
 - **Visibility Toggle** — Hide your profile from discovery
@@ -49,13 +54,16 @@ Built with React Native (Expo SDK 56), Node.js, MongoDB, and Socket.IO.
 - Expo Router (file-based navigation)
 - TypeScript
 - Socket.IO Client
+- react-native-webrtc (video calling)
+- tweetnacl (E2EE encryption — NaCl Curve25519 + XSalsa20-Poly1305)
+- expo-secure-store (secure key storage on device)
 - expo-image-picker (photo/video selection)
 - expo-video (video playback)
 
 ### Backend
 - Node.js + Express
 - MongoDB + Mongoose
-- Socket.IO (real-time messaging, typing, online status)
+- Socket.IO (real-time messaging, typing, online status, WebRTC signaling)
 - JWT authentication + bcrypt
 - Multer (local uploads) / Cloudinary (production)
 - express-validator
@@ -79,12 +87,16 @@ chrischat/
 │   │   ├── events.tsx             # Campus events + RSVP
 │   │   ├── confessions.tsx        # Anonymous confessions
 │   │   └── profile.tsx            # Profile + photo grid + settings
-│   └── chat/
-│       └── [matchId].tsx          # Chat + media + video playback
+│   ├── chat/
+│   │   └── [matchId].tsx          # Chat + media + video playback + E2EE
+│   └── call/
+│       └── [matchId].tsx          # WebRTC video call screen
 ├── src/
 │   ├── constants/theme.ts         # Design tokens
-│   ├── context/AuthContext.tsx     # Auth state management
-│   └── services/api.ts            # API client (all endpoints)
+│   ├── context/AuthContext.tsx     # Auth state + E2EE key init
+│   └── services/
+│       ├── api.ts                 # API client (all endpoints)
+│       └── crypto.ts              # E2EE encryption/decryption (NaCl)
 ├── backend/
 │   ├── server.js                  # Express + Socket.IO + routes
 │   ├── config/
@@ -195,6 +207,8 @@ Scan the QR code with Expo Go to run on your phone, or press `w` for web.
 | POST | `/api/profile/unblock/:id` | Unblock a user |
 | GET | `/api/profile/blocked` | Get blocked users list |
 | POST | `/api/profile/report/:id` | Report a user |
+| PUT | `/api/profile/keys/public` | Upload E2EE public key |
+| GET | `/api/profile/keys/:userId` | Get user's E2EE public key |
 
 ### Discovery & Matching
 | Method | Endpoint | Description |
@@ -252,6 +266,16 @@ Scan the QR code with Expo Go to run on your phone, or press `w` for web.
 | `new_match` | Server → Client | New match notification |
 | `super_like` | Client → Server | Super like sent |
 | `super_like_received` | Server → Client | Super like notification |
+| `match_notification` | Server → Client | Match created notification |
+| `call_user` | Client → Server | Initiate video call |
+| `incoming_call` | Server → Client | Incoming call notification |
+| `call_answer` | Client → Server | Answer a call |
+| `call_answered` | Server → Client | Call was answered |
+| `ice_candidate` | Bidirectional | ICE candidate exchange |
+| `end_call` | Client → Server | End video call |
+| `call_ended` | Server → Client | Call ended notification |
+| `reject_call` | Client → Server | Reject incoming call |
+| `call_rejected` | Server → Client | Call was rejected |
 
 ---
 
@@ -260,11 +284,20 @@ Scan the QR code with Expo Go to run on your phone, or press `w` for web.
 | Service | Purpose | Cost |
 |---------|---------|------|
 | MongoDB Atlas M0 | Database | Free |
-| Render (free tier) | Backend hosting | Free |
+| Railway | Backend hosting | Free tier / $5/mo |
 | Cloudinary (free tier) | Photo/video storage | Free |
 | EAS Build (free tier) | Android APK builds | Free |
 
-See the deployment guide in the project for full step-by-step instructions.
+### Environment Variables (Railway)
+
+```env
+PORT=8080
+MONGODB_URI=mongodb+srv://...
+JWT_SECRET=your-secret-key
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
 
 ---
 
