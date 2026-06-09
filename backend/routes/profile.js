@@ -306,4 +306,38 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// --- E2EE Public Key Management ---
+
+// Upload / update my public key
+router.put(
+  '/keys/public',
+  auth,
+  [body('publicKey').isString().isLength({ min: 20, max: 100 }).trim()],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+      await User.findByIdAndUpdate(req.user._id, { publicKey: req.body.publicKey });
+      res.json({ message: 'Public key updated' });
+    } catch (error) {
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+);
+
+// Get a user's public key by user ID
+router.get('/keys/:userId', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('publicKey');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json({ publicKey: user.publicKey || '' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

@@ -107,7 +107,7 @@ router.get('/:matchId', auth, async (req, res) => {
 router.post(
   '/:matchId',
   auth,
-  [body('text').optional().trim().isLength({ max: 1000 })],
+  [body('text').optional().trim().isLength({ max: 5000 })],
   async (req, res) => {
     try {
       const errors = validationResult(req);
@@ -129,6 +129,7 @@ router.post(
         sender: req.user._id,
         text: req.body.text || '',
         type: req.body.type || 'text',
+        encrypted: req.body.encrypted || false,
       };
 
       const message = await Message.create(msgData);

@@ -19,9 +19,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { io, Socket } from 'socket.io-client';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import api, { SOCKET_URL, getImageUrl } from '../../src/services/api';
+import api, { SOCKET_URL, getImageUrl, appendFileToFormData } from '../../src/services/api';
 import { useAuth } from '../../src/context/AuthContext';
 import { COLORS, SPACING, RADIUS, FONTS, SHADOWS } from '../../src/constants/theme';
+import {
+  encryptMessage,
+  decryptMessage,
+  getOrCreateKeyPair,
+  isEncrypted,
+} from '../../src/services/crypto';
 
 interface Message {
   _id: string;
@@ -80,13 +86,47 @@ export default function ChatScreen() {
   const socketRef = useRef<Socket | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const myPrivateKeyRef = useRef<string>('');
+  const peerPublicKeyRef = useRef<string>('');
 
   useEffect(() => {
-    loadMessages();
+    initE2EE().then(() => {
+      loadMessages();
+    });
     loadIcebreakers();
     setupSocket();
     return () => { socketRef.current?.disconnect(); };
   }, []);
+
+  const initE2EE = async () => {
+    try {
+      const keyPair = await getOrCreateKeyPair();
+      myPrivateKeyRef.current = keyPair.privateKey;
+      if (userId) {
+        const { publicKey } = await api.getPeerPublicKey(userId);
+        peerPublicKeyRef.current = publicKey || '';
+      }
+    } catch (e) {
+      console.warn('E2EE init failed:', e);
+    }
+  };
+
+  const tryDecrypt = (msg: Message): Message => {
+    if (msg.type !== 'text' || !msg.text) return msg;
+    if (!myPrivateKeyRef.current || !peerPublicKeyRef.current) return msg;
+    if (!isEncrypted(msg.text)) return msg;
+    const decrypted = decryptMessage(msg.text, myPrivateKeyRef.current, peerPublicKeyRef.current);
+    return decrypted ? { ...msg, text: decrypted } : msg;
+  };
+
+  const tryEncrypt = (plaintext: string): string => {
+    if (!myPrivateKeyRef.current || !peerPublicKeyRef.current) return plaintext;
+    try {
+      return encryptMessage(plaintext, myPrivateKeyRef.current, peerPublicKeyRef.current);
+    } catch {
+      return plaintext;
+    }
+  };
 
   const setupSocket = () => {
     const socket = io(SOCKET_URL);
@@ -94,7 +134,7 @@ export default function ChatScreen() {
     socket.on('connect', () => { if (user?._id) socket.emit('user_online', user._id); });
     socket.on('receive_message', (data: Message) => {
       if (data.sender._id !== user?._id) {
-        setMessages((prev) => [...prev, data]);
+        setMessages((prev) => [...prev, tryDecrypt(data)]);
         api.markMessagesRead(matchId!);
         socket.emit('message_read', { matchId, senderId: data.sender._id, readBy: user?._id });
       }
@@ -145,7 +185,7 @@ export default function ChatScreen() {
   const loadMessages = async () => {
     try {
       const data = await api.getMessages(matchId!);
-      setMessages(data);
+      setMessages(data.map(tryDecrypt));
       api.markMessagesRead(matchId!);
     } catch (error) { console.error('Failed to load messages:', error); }
     finally { setLoading(false); }
@@ -176,8 +216,11 @@ export default function ChatScreen() {
     setIsTyping(false);
     socketRef.current?.emit('typing', { senderId: user?._id, receiverId: userId, matchId, isTyping: false });
     try {
-      const newMessage = await api.sendMessage(matchId!, messageText);
-      setMessages((prev) => [...prev, newMessage]);
+      const encryptedText = tryEncrypt(messageText);
+      const isE2EE = encryptedText !== messageText;
+      const newMessage = await api.sendMessage(matchId!, encryptedText, isE2EE);
+      // Show decrypted text locally
+      setMessages((prev) => [...prev, { ...newMessage, text: messageText }]);
       socketRef.current?.emit('send_message', { ...newMessage, receiverId: userId });
     } catch (error) { console.error('Failed to send:', error); setText(messageText); }
     finally { setSending(false); }
@@ -212,11 +255,9 @@ export default function ChatScreen() {
       const formData = new FormData();
       const ext = asset.uri.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
       const fieldName = isVideo ? 'video' : 'image';
-      formData.append(fieldName, {
-        uri: asset.uri,
-        name: `${fieldName}-${Date.now()}.${ext}`,
-        type: isVideo ? `video/${ext}` : `image/${ext}`,
-      } as any);
+      const fileName = `${fieldName}-${Date.now()}.${ext}`;
+      const mimeType = isVideo ? `video/${ext}` : `image/${ext}`;
+      await appendFileToFormData(formData, fieldName, asset.uri, fileName, mimeType);
       const newMessage = isVideo
         ? await api.sendVideoMessage(matchId!, formData)
         : await api.sendImageMessage(matchId!, formData);
@@ -279,7 +320,12 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={styles.headerName}>{userName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.headerName}>{userName}</Text>
+            {peerPublicKeyRef.current ? (
+              <Ionicons name="lock-closed" size={12} color={COLORS.success || '#4CAF50'} />
+            ) : null}
+          </View>
           {peerTyping && <Text style={styles.typingText}>typing...</Text>}
         </View>
         <TouchableOpacity

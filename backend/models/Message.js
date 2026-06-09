@@ -14,8 +14,12 @@ const messageSchema = new mongoose.Schema(
     },
     text: {
       type: String,
-      maxlength: 1000,
+      maxlength: 5000,
       default: '',
+    },
+    encrypted: {
+      type: Boolean,
+      default: false,
     },
     type: {
       type: String,

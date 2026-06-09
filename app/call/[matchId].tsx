@@ -11,17 +11,17 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { io, Socket } from 'socket.io-client';
-import {
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  RTCView,
-  mediaDevices,
-  MediaStream,
-} from 'react-native-webrtc';
 import { useAuth } from '../../src/context/AuthContext';
 import { SOCKET_URL } from '../../src/services/api';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../src/constants/theme';
+
+// WebRTC is native-only — conditionally imported
+const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
+const RTCPeerConnection = WebRTC?.RTCPeerConnection;
+const RTCIceCandidate = WebRTC?.RTCIceCandidate;
+const RTCSessionDescription = WebRTC?.RTCSessionDescription;
+const RTCViewComponent = WebRTC?.RTCView;
+const webrtcMediaDevices = WebRTC?.mediaDevices;
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -36,6 +36,21 @@ const ICE_SERVERS = {
 type CallState = 'connecting' | 'ringing' | 'connected' | 'ended';
 
 export default function VideoCallScreen() {
+  // Video calling is not supported on web
+  if (Platform.OS === 'web') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
+        <Ionicons name="videocam-off" size={64} color={COLORS.white} />
+        <Text style={{ color: COLORS.white, fontSize: 18, fontWeight: '600', marginTop: SPACING.lg, textAlign: 'center', paddingHorizontal: SPACING.xl }}>
+          Video calls are only available on mobile
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: SPACING.xl, backgroundColor: COLORS.primary, paddingHorizontal: SPACING.xl, paddingVertical: SPACING.md, borderRadius: RADIUS.lg }}>
+          <Text style={{ color: COLORS.white, fontSize: 16, fontWeight: '700' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const { matchId, userId, userName, isIncoming, offer: incomingOffer } = useLocalSearchParams<{
     matchId: string;
     userId: string;
@@ -46,16 +61,16 @@ export default function VideoCallScreen() {
   const { user } = useAuth();
 
   const [callState, setCallState] = useState<CallState>(isIncoming === 'true' ? 'ringing' : 'connecting');
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<any>(null);
+  const [remoteStream, setRemoteStream] = useState<any>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
 
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
+  const peerConnection = useRef<any>(null);
   const socketRef = useRef<Socket | null>(null);
-  const iceCandidateQueue = useRef<RTCIceCandidate[]>([]);
+  const iceCandidateQueue = useRef<any[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasCleanedUp = useRef(false);
 
@@ -78,7 +93,7 @@ export default function VideoCallScreen() {
   const initCall = async () => {
     try {
       // Get local media stream
-      const stream = await mediaDevices.getUserMedia({
+      const stream = await webrtcMediaDevices.getUserMedia({
         audio: true,
         video: {
           facingMode: 'user',
@@ -102,7 +117,7 @@ export default function VideoCallScreen() {
       peerConnection.current = pc;
 
       // Add local tracks to peer connection
-      stream.getTracks().forEach((track) => {
+      stream.getTracks().forEach((track: any) => {
         pc.addTrack(track, stream);
       });
 
@@ -266,7 +281,7 @@ export default function VideoCallScreen() {
     hasCleanedUp.current = true;
 
     if (timerRef.current) clearInterval(timerRef.current);
-    localStream?.getTracks().forEach((track) => track.stop());
+    localStream?.getTracks().forEach((track: any) => track.stop());
     peerConnection.current?.close();
     socketRef.current?.disconnect();
     peerConnection.current = null;
@@ -345,7 +360,7 @@ export default function VideoCallScreen() {
     <View style={styles.container}>
       {/* Remote Video (Full Screen) */}
       {remoteStream ? (
-        <RTCView
+        <RTCViewComponent
           streamURL={remoteStream.toURL()}
           style={styles.remoteVideo}
           objectFit="cover"
@@ -364,7 +379,7 @@ export default function VideoCallScreen() {
       {/* Local Video (Picture-in-Picture) */}
       {localStream && !isCameraOff && (
         <View style={styles.localVideoWrapper}>
-          <RTCView
+          <RTCViewComponent
             streamURL={localStream.toURL()}
             style={styles.localVideo}
             objectFit="cover"

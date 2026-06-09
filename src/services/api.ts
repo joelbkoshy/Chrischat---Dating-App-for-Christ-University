@@ -22,6 +22,20 @@ export const getImageUrl = (path: string) => {
   return `${BASE_URL}${path}`;
 };
 
+// Helper: create a cross-platform FormData entry from an image picker asset URI
+export async function appendFileToFormData(
+  formData: FormData,
+  fieldName: string,
+  uri: string,
+  fileName: string,
+  mimeType: string,
+) {
+  // fetch works with file://, content://, data:, and http(s):// URIs on all platforms
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  formData.append(fieldName, blob, fileName);
+}
+
 class ApiService {
   private token: string | null = null;
 
@@ -126,6 +140,18 @@ class ApiService {
     return this.request(`/profile/${encodeURIComponent(id)}`);
   }
 
+  // E2EE key management
+  async uploadPublicKey(publicKey: string) {
+    return this.request('/profile/keys/public', {
+      method: 'PUT',
+      body: JSON.stringify({ publicKey }),
+    });
+  }
+
+  async getPeerPublicKey(userId: string): Promise<{ publicKey: string }> {
+    return this.request(`/profile/keys/${encodeURIComponent(userId)}`);
+  }
+
   async uploadPhotos(formData: FormData) {
     return this.uploadRequest('/profile/photos', formData);
   }
@@ -221,10 +247,10 @@ class ApiService {
     return this.request(`/chat/${encodeURIComponent(matchId)}?page=${page}`);
   }
 
-  async sendMessage(matchId: string, text: string) {
+  async sendMessage(matchId: string, text: string, encrypted = false) {
     return this.request(`/chat/${encodeURIComponent(matchId)}`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, encrypted }),
     });
   }
 

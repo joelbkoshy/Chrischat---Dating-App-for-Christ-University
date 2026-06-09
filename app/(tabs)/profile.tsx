@@ -17,7 +17,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../src/context/AuthContext';
-import api, { getImageUrl } from '../../src/services/api';
+import api, { getImageUrl, appendFileToFormData } from '../../src/services/api';
 import { COLORS, SPACING, RADIUS, FONTS, SHADOWS } from '../../src/constants/theme';
 
 const BADGE_ICONS: Record<string, string> = {
@@ -119,11 +119,7 @@ export default function ProfileScreen() {
       const formData = new FormData();
       for (const asset of result.assets) {
         const ext = asset.uri.split('.').pop() || 'jpg';
-        formData.append('photos', {
-          uri: asset.uri,
-          name: `photo-${Date.now()}.${ext}`,
-          type: `image/${ext}`,
-        } as any);
+        await appendFileToFormData(formData, 'photos', asset.uri, `photo-${Date.now()}.${ext}`, `image/${ext}`);
       }
       const data = await api.uploadPhotos(formData);
       setProfile((prev: any) => prev ? { ...prev, photos: data.photos } : prev);

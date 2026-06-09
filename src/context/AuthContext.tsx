@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
+import { getOrCreateKeyPair } from '../services/crypto';
 
 interface User {
   _id: string;
@@ -40,6 +41,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, []);
 
+  const initE2EEKeys = async () => {
+    try {
+      const keyPair = await getOrCreateKeyPair();
+      await api.uploadPublicKey(keyPair.publicKey);
+    } catch (e) {
+      console.warn('E2EE key init failed:', e);
+    }
+  };
+
   const loadUser = async () => {
     try {
       const token = await AsyncStorage.getItem('token');
@@ -48,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token && savedUser) {
         await api.setToken(token);
         setUser(JSON.parse(savedUser));
+        initE2EEKeys();
       }
     } catch {
       // token invalid or expired
@@ -61,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.setToken(data.token);
     await AsyncStorage.setItem('user', JSON.stringify(data));
     setUser(data);
+    initE2EEKeys();
   };
 
   const register = async (name: string, email: string, password: string, department: string) => {
@@ -68,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.setToken(data.token);
     await AsyncStorage.setItem('user', JSON.stringify(data));
     setUser(data);
+    initE2EEKeys();
   };
 
   const logout = async () => {
