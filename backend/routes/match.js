@@ -4,8 +4,6 @@ const User = require('../models/User');
 const Match = require('../models/Match');
 const Message = require('../models/Message');
 
-const router = express.Router();
-
 // Calculate compatibility score between two users
 function calculateCompatibility(user1, user2) {
   let score = 0;
@@ -46,6 +44,19 @@ function calculateCompatibility(user1, user2) {
   factors++;
 
   return Math.round(score);
+}
+
+module.exports = function (io) {
+const router = express.Router();
+
+// Helper: find socket ID for a user
+function getReceiverSocket(userId) {
+  // Access the onlineUsers map from server.js via io
+  const sockets = io.sockets.sockets;
+  for (const [, socket] of sockets) {
+    if (socket.userId === userId.toString()) return socket.id;
+  }
+  return null;
 }
 
 // Get discoverable profiles with filters
@@ -163,7 +174,7 @@ router.post('/like/:id', auth, async (req, res) => {
     }
 
     // Add to likes if not already there
-    if (!currentUser.likes.includes(targetId)) {
+    if (!currentUser.likes.some(id => id.toString() === targetId)) {
       currentUser.likes.push(targetId);
       // Track last swipe for undo
       currentUser.lastSwipe = { userId: targetId, action: 'like', timestamp: new Date() };
@@ -177,7 +188,7 @@ router.post('/like/:id', auth, async (req, res) => {
     }
 
     // Check if it's a mutual like (match!)
-    const isMatch = targetUser.likes.includes(req.user._id);
+    const isMatch = targetUser.likes.some(id => id.toString() === req.user._id.toString());
 
     if (isMatch) {
       const existingMatch = await Match.findOne({
@@ -194,6 +205,13 @@ router.post('/like/:id', auth, async (req, res) => {
           currentUser.badges.push({ name: 'First Match' });
           await currentUser.save();
         }
+
+        // Notify the other user about the match via socket
+        io.emit('match_notification', {
+          matchId: match._id,
+          user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+          targetUserId: targetId,
+        });
 
         return res.json({
           matched: true,
@@ -251,18 +269,24 @@ router.post('/superlike/:id', auth, async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (!currentUser.likes.includes(targetId)) {
+    if (!currentUser.likes.some(id => id.toString() === targetId)) {
       currentUser.likes.push(targetId);
     }
-    if (!currentUser.superLikes.includes(targetId)) {
+    if (!currentUser.superLikes.some(id => id.toString() === targetId)) {
       currentUser.superLikes.push(targetId);
     }
     currentUser.superLikesRemaining -= 1;
     currentUser.lastSwipe = { userId: targetId, action: 'superlike', timestamp: new Date() };
     await currentUser.save();
 
+    // Notify the target about the super like
+    io.emit('super_like_received', {
+      from: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+      targetUserId: targetId,
+    });
+
     // Check if mutual
-    const isMatch = targetUser.likes.includes(req.user._id);
+    const isMatch = targetUser.likes.some(id => id.toString() === req.user._id.toString());
 
     if (isMatch) {
       const existingMatch = await Match.findOne({
@@ -270,9 +294,16 @@ router.post('/superlike/:id', auth, async (req, res) => {
       });
 
       if (!existingMatch) {
-        await Match.create({
+        const match = await Match.create({
           users: [req.user._id, targetId],
           isSuperLike: true,
+        });
+
+        // Notify about match
+        io.emit('match_notification', {
+          matchId: match._id,
+          user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+          targetUserId: targetId,
         });
       }
 
@@ -338,7 +369,7 @@ router.post('/dislike/:id', auth, async (req, res) => {
     const targetId = req.params.id;
     const currentUser = await User.findById(req.user._id);
 
-    if (!currentUser.dislikes.includes(targetId)) {
+    if (!currentUser.dislikes.some(id => id.toString() === targetId)) {
       currentUser.dislikes.push(targetId);
       currentUser.lastSwipe = { userId: targetId, action: 'dislike', timestamp: new Date() };
       await currentUser.save();
@@ -487,4 +518,5 @@ router.get('/compatibility/:id', auth, async (req, res) => {
   }
 });
 
-module.exports = router;
+return router;
+};

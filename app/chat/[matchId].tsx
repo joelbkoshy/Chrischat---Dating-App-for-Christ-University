@@ -109,6 +109,37 @@ export default function ChatScreen() {
         ));
       }
     });
+    // Handle incoming video call
+    socket.on('incoming_call', (data: { callerId: string; callerName: string; matchId: string; offer: any }) => {
+      Alert.alert(
+        'Incoming Video Call',
+        `${data.callerName} is calling you`,
+        [
+          {
+            text: 'Decline',
+            style: 'cancel',
+            onPress: () => {
+              socket.emit('reject_call', { callerId: data.callerId, reason: 'rejected' });
+            },
+          },
+          {
+            text: 'Answer',
+            onPress: () => {
+              router.push({
+                pathname: '/call/[matchId]',
+                params: {
+                  matchId: data.matchId,
+                  userId: data.callerId,
+                  userName: data.callerName,
+                  isIncoming: 'true',
+                  offer: JSON.stringify(data.offer),
+                },
+              });
+            },
+          },
+        ],
+      );
+    });
   };
 
   const loadMessages = async () => {
@@ -251,6 +282,17 @@ export default function ChatScreen() {
           <Text style={styles.headerName}>{userName}</Text>
           {peerTyping && <Text style={styles.typingText}>typing...</Text>}
         </View>
+        <TouchableOpacity
+          onPress={() => {
+            router.push({
+              pathname: '/call/[matchId]',
+              params: { matchId: matchId!, userId: userId!, userName: userName! },
+            });
+          }}
+          style={styles.menuButton}
+        >
+          <Ionicons name="videocam-outline" size={22} color={COLORS.primary} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.menuButton}>
           <Ionicons name="ellipsis-vertical" size={20} color={COLORS.text} />
         </TouchableOpacity>

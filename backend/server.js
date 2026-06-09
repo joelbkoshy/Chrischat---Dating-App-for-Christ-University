@@ -49,7 +49,7 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/match', matchRoutes);
+app.use('/api/match', matchRoutes(io));
 app.use('/api/chat', chatRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/confessions', confessionRoutes);
@@ -62,6 +62,7 @@ io.on('connection', (socket) => {
 
   socket.on('user_online', (userId) => {
     onlineUsers.set(userId, socket.id);
+    socket.userId = userId;
     // Broadcast online status
     socket.broadcast.emit('user_status', { userId, online: true });
   });
@@ -110,6 +111,60 @@ io.on('connection', (socket) => {
     if (receiverSocket) {
       io.to(receiverSocket).emit('super_like_received', {
         from: data.from,
+      });
+    }
+  });
+
+  // WebRTC Video Call Signaling
+  socket.on('call_user', (data) => {
+    const receiverSocket = onlineUsers.get(data.receiverId);
+    if (receiverSocket) {
+      io.to(receiverSocket).emit('incoming_call', {
+        callerId: data.callerId,
+        callerName: data.callerName,
+        callerPhoto: data.callerPhoto,
+        matchId: data.matchId,
+        offer: data.offer,
+      });
+    } else {
+      // User is offline
+      socket.emit('call_failed', { reason: 'User is offline' });
+    }
+  });
+
+  socket.on('call_answer', (data) => {
+    const callerSocket = onlineUsers.get(data.callerId);
+    if (callerSocket) {
+      io.to(callerSocket).emit('call_answered', {
+        answer: data.answer,
+      });
+    }
+  });
+
+  socket.on('ice_candidate', (data) => {
+    const receiverSocket = onlineUsers.get(data.receiverId);
+    if (receiverSocket) {
+      io.to(receiverSocket).emit('ice_candidate', {
+        candidate: data.candidate,
+        senderId: data.senderId,
+      });
+    }
+  });
+
+  socket.on('end_call', (data) => {
+    const receiverSocket = onlineUsers.get(data.receiverId);
+    if (receiverSocket) {
+      io.to(receiverSocket).emit('call_ended', {
+        reason: data.reason || 'ended',
+      });
+    }
+  });
+
+  socket.on('reject_call', (data) => {
+    const callerSocket = onlineUsers.get(data.callerId);
+    if (callerSocket) {
+      io.to(callerSocket).emit('call_rejected', {
+        reason: data.reason || 'rejected',
       });
     }
   });

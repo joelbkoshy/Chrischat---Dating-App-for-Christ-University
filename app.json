@@ -13,7 +13,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "ChrisChat needs camera access to take photos and videos.",
         "NSPhotoLibraryUsageDescription": "ChrisChat needs photo library access to upload pictures.",
-        "NSMicrophoneUsageDescription": "ChrisChat needs microphone access to record videos."
+        "NSMicrophoneUsageDescription": "ChrisChat needs microphone access to record videos.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -26,7 +27,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.chrischat.app",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -43,7 +45,8 @@
           "photosPermission": "ChrisChat needs access to your photos to upload profile pictures and share media.",
           "cameraPermission": "ChrisChat needs access to your camera to take photos and videos."
         }
-      ]
+      ],
+      "@config-plugins/react-native-webrtc"
     ],
     "extra": {
       "router": {},
