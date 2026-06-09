@@ -29,8 +29,24 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
+    // Free TURN servers from Open Relay (metered.ca)
+    {
+      urls: 'turn:a.relay.metered.ca:80',
+      username: 'e8dd65b92f6aee9f74073274',
+      credential: '3TH8MqDLaQGKU/gy',
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+      username: 'e8dd65b92f6aee9f74073274',
+      credential: '3TH8MqDLaQGKU/gy',
+    },
+    {
+      urls: 'turns:a.relay.metered.ca:443',
+      username: 'e8dd65b92f6aee9f74073274',
+      credential: '3TH8MqDLaQGKU/gy',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 type CallState = 'connecting' | 'ringing' | 'connected' | 'ended';
@@ -104,12 +120,21 @@ export default function VideoCallScreen() {
       });
       setLocalStream(stream);
 
-      // Setup socket
+      // Setup socket and wait for it to connect before signaling
       const socket = io(SOCKET_URL);
       socketRef.current = socket;
 
-      socket.on('connect', () => {
-        if (user?._id) socket.emit('user_online', user._id);
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Socket connection timeout')), 10000);
+        socket.on('connect', () => {
+          clearTimeout(timeout);
+          if (user?._id) socket.emit('user_online', user._id);
+          resolve();
+        });
+        socket.on('connect_error', (err: any) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
       });
 
       // Setup peer connection
@@ -140,11 +165,25 @@ export default function VideoCallScreen() {
       };
 
       (pc as any).onconnectionstatechange = () => {
+        console.log('WebRTC connectionState:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setCallState('connected');
-        } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          endCall('Connection lost');
+        } else if (pc.connectionState === 'failed') {
+          endCall('Connection failed');
         }
+        // 'disconnected' is temporary and can recover — do NOT end the call
+      };
+
+      (pc as any).oniceconnectionstatechange = () => {
+        console.log('ICE connectionState:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed') {
+          // Attempt an ICE restart before giving up
+          pc.restartIce?.();
+        }
+      };
+
+      (pc as any).onicegatheringstatechange = () => {
+        console.log('ICE gatheringState:', pc.iceGatheringState);
       };
 
       // Socket event handlers

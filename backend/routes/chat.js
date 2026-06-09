@@ -34,7 +34,7 @@ if (useCloudinary) {
   upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
-      const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.avi', '.mkv'];
+      const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.avi', '.mkv', '.m4a', '.mp3', '.aac', '.wav', '.ogg'];
       const ext = path.extname(file.originalname).toLowerCase();
       cb(null, allowed.includes(ext));
     },
@@ -227,6 +227,47 @@ router.post('/:matchId/video', auth, upload.single('video'), async (req, res) =>
       text: '',
       type: 'video',
       videoUrl: req.file.path || `/uploads/chat/${req.file.filename}`,
+    });
+
+    await message.populate('sender', 'name photos');
+
+    if (!match.hasMessages) {
+      match.hasMessages = true;
+    }
+    match.lastMessageAt = new Date();
+    await match.save();
+
+    res.status(201).json(message);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Send an audio/voice message
+router.post('/:matchId/audio', auth, upload.single('audio'), async (req, res) => {
+  try {
+    const match = await Match.findOne({
+      _id: req.params.matchId,
+      users: req.user._id,
+    });
+
+    if (!match) {
+      return res.status(404).json({ message: 'Match not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No audio uploaded' });
+    }
+
+    const duration = req.body.duration ? parseFloat(req.body.duration) : undefined;
+
+    const message = await Message.create({
+      match: match._id,
+      sender: req.user._id,
+      text: '',
+      type: 'audio',
+      audioUrl: req.file.path || `/uploads/chat/${req.file.filename}`,
+      audioDuration: duration,
     });
 
     await message.populate('sender', 'name photos');

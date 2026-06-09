@@ -12,6 +12,9 @@ import {
   Image,
   Alert,
   Modal,
+  Dimensions,
+  Pressable,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -19,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { io, Socket } from 'socket.io-client';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { Audio } from 'expo-av';
 import api, { SOCKET_URL, getImageUrl, appendFileToFormData } from '../../src/services/api';
 import { useAuth } from '../../src/context/AuthContext';
 import { COLORS, SPACING, RADIUS, FONTS, SHADOWS } from '../../src/constants/theme';
@@ -29,13 +33,17 @@ import {
   isEncrypted,
 } from '../../src/services/crypto';
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 interface Message {
   _id: string;
   sender: { _id: string; name: string };
   text: string;
-  type?: 'text' | 'image' | 'video' | 'icebreaker';
+  type?: 'text' | 'image' | 'video' | 'audio' | 'icebreaker';
   imageUrl?: string;
   videoUrl?: string;
+  audioUrl?: string;
+  audioDuration?: number;
   read?: boolean;
   readAt?: string;
   createdAt: string;
@@ -66,6 +74,81 @@ function VideoMessageBubble({ videoUrl }: { videoUrl: string }) {
   );
 }
 
+function AudioMessageBubble({ audioUrl, duration, isOwn }: { audioUrl: string; duration?: number; isOwn: boolean }) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(duration || 0);
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    return () => { sound?.unloadAsync(); };
+  }, [sound]);
+
+  const togglePlayback = async () => {
+    try {
+      if (sound && isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+        return;
+      }
+
+      if (sound) {
+        await sound.playAsync();
+        setIsPlaying(true);
+        return;
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: getImageUrl(audioUrl) },
+        { shouldPlay: true },
+        (status) => {
+          if (!status.isLoaded) return;
+          setPosition(status.positionMillis);
+          setTotalDuration(status.durationMillis || (duration ? duration * 1000 : 0));
+          if (status.durationMillis) {
+            const pct = status.positionMillis / status.durationMillis;
+            progressAnim.setValue(pct);
+          }
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            setPosition(0);
+            progressAnim.setValue(0);
+          }
+        }
+      );
+      setSound(newSound);
+      setIsPlaying(true);
+    } catch (e) {
+      console.error('Audio playback error:', e);
+    }
+  };
+
+  const formatTime = (ms: number) => {
+    const secs = Math.floor(ms / 1000);
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <TouchableOpacity onPress={togglePlayback} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 160 }}>
+      <Ionicons name={isPlaying ? 'pause' : 'play'} size={24} color={isOwn ? COLORS.white : COLORS.primary} />
+      <View style={{ flex: 1, height: 4, backgroundColor: isOwn ? 'rgba(255,255,255,0.3)' : COLORS.border, borderRadius: 2, overflow: 'hidden' }}>
+        <Animated.View style={{
+          height: '100%',
+          backgroundColor: isOwn ? COLORS.white : COLORS.primary,
+          borderRadius: 2,
+          width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+        }} />
+      </View>
+      <Text style={{ fontSize: 11, color: isOwn ? 'rgba(255,255,255,0.7)' : COLORS.textLight }}>
+        {isPlaying ? formatTime(position) : formatTime(totalDuration * 1000)}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function ChatScreen() {
   const { matchId, userName, userId } = useLocalSearchParams<{
     matchId: string;
@@ -83,18 +166,23 @@ export default function ChatScreen() {
   const [icebreakers, setIcebreakers] = useState<string[]>([]);
   const [showIcebreakers, setShowIcebreakers] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myPrivateKeyRef = useRef<string>('');
   const peerPublicKeyRef = useRef<string>('');
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     initE2EE().then(() => {
       loadMessages();
+      setupSocket();
     });
     loadIcebreakers();
-    setupSocket();
     return () => { socketRef.current?.disconnect(); };
   }, []);
 
@@ -113,13 +201,22 @@ export default function ChatScreen() {
 
   const tryDecrypt = (msg: Message): Message => {
     if (msg.type !== 'text' || !msg.text) return msg;
-    if (!myPrivateKeyRef.current || !peerPublicKeyRef.current) return msg;
     if (!isEncrypted(msg.text)) return msg;
+    if (!myPrivateKeyRef.current || !peerPublicKeyRef.current) {
+      // Keys not available — show placeholder instead of ciphertext
+      return { ...msg, text: '🔒 Encrypted message' };
+    }
     const decrypted = decryptMessage(msg.text, myPrivateKeyRef.current, peerPublicKeyRef.current);
-    return decrypted ? { ...msg, text: decrypted } : msg;
+    if (!decrypted) {
+      // Decryption failed (different device/key pair) — show placeholder
+      return { ...msg, text: '🔒 Encrypted message' };
+    }
+    return { ...msg, text: decrypted };
   };
 
   const tryEncrypt = (plaintext: string): string => {
+    // Only encrypt on native; web sessions use different keys and can't cross-decrypt
+    if (Platform.OS === 'web') return plaintext;
     if (!myPrivateKeyRef.current || !peerPublicKeyRef.current) return plaintext;
     try {
       return encryptMessage(plaintext, myPrivateKeyRef.current, peerPublicKeyRef.current);
@@ -252,20 +349,99 @@ export default function ChatScreen() {
     setSending(true);
     try {
       const isVideo = asset.type === 'video';
-      const formData = new FormData();
-      const ext = asset.uri.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
+      const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
+      const extFromMime = mimeType.split('/').pop() || (isVideo ? 'mp4' : 'jpg');
       const fieldName = isVideo ? 'video' : 'image';
-      const fileName = `${fieldName}-${Date.now()}.${ext}`;
-      const mimeType = isVideo ? `video/${ext}` : `image/${ext}`;
-      await appendFileToFormData(formData, fieldName, asset.uri, fileName, mimeType);
-      const newMessage = isVideo
-        ? await api.sendVideoMessage(matchId!, formData)
-        : await api.sendImageMessage(matchId!, formData);
+      const fileName = `${fieldName}-${Date.now()}.${extFromMime}`;
+
+      let newMessage;
+      if (Platform.OS === 'web') {
+        const formData = new FormData();
+        await appendFileToFormData(formData, fieldName, asset.uri, fileName, mimeType);
+        newMessage = isVideo
+          ? await api.sendVideoMessage(matchId!, formData)
+          : await api.sendImageMessage(matchId!, formData);
+      } else {
+        newMessage = isVideo
+          ? await api.sendVideoMessage(matchId!, asset.uri, fileName, mimeType)
+          : await api.sendImageMessage(matchId!, asset.uri, fileName, mimeType);
+      }
       setMessages((prev) => [...prev, newMessage]);
       socketRef.current?.emit('send_message', { ...newMessage, receiverId: userId });
     } catch (error) {
       console.error('Failed to send media:', error);
       Alert.alert('Error', 'Failed to send media');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // --- Voice recording ---
+  const startRecording = async () => {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission required', 'Microphone access is needed to record voice messages.');
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (e) {
+      console.error('Failed to start recording:', e);
+      Alert.alert('Error', 'Failed to start recording');
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingDuration(0);
+    try {
+      await recordingRef.current?.stopAndUnloadAsync();
+    } catch {}
+    recordingRef.current = null;
+  };
+
+  const stopAndSendRecording = async () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    const duration = recordingDuration;
+    setRecordingDuration(0);
+
+    if (!recordingRef.current) return;
+    try {
+      await recordingRef.current.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+      if (!uri) return;
+
+      setSending(true);
+      const fileName = `voice-${Date.now()}.m4a`;
+      const mimeType = 'audio/m4a';
+
+      let newMessage;
+      if (Platform.OS === 'web') {
+        const formData = new FormData();
+        await appendFileToFormData(formData, 'audio', uri, fileName, mimeType);
+        formData.append('duration', String(duration));
+        newMessage = await api.sendAudioMessage(matchId!, formData);
+      } else {
+        newMessage = await api.sendAudioMessage(matchId!, uri, fileName, mimeType, duration);
+      }
+      setMessages((prev) => [...prev, newMessage]);
+      socketRef.current?.emit('send_message', { ...newMessage, receiverId: userId });
+    } catch (error) {
+      console.error('Failed to send voice message:', error);
+      Alert.alert('Error', 'Failed to send voice message');
     } finally {
       setSending(false);
     }
@@ -298,10 +474,15 @@ export default function ChatScreen() {
       <View>
         <View style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.otherMessage]}>
           {item.type === 'image' && item.imageUrl && (
-            <Image source={{ uri: getImageUrl(item.imageUrl) }} style={styles.messageImage} resizeMode="cover" />
+            <TouchableOpacity onPress={() => setFullscreenImage(getImageUrl(item.imageUrl!))}>
+              <Image source={{ uri: getImageUrl(item.imageUrl) }} style={styles.messageImage} resizeMode="cover" />
+            </TouchableOpacity>
           )}
           {item.type === 'video' && item.videoUrl && (
             <VideoMessageBubble videoUrl={getImageUrl(item.videoUrl)} />
+          )}
+          {item.type === 'audio' && item.audioUrl && (
+            <AudioMessageBubble audioUrl={item.audioUrl} duration={item.audioDuration} isOwn={isOwn} />
           )}
           {item.text ? <Text style={[styles.messageText, isOwn && styles.ownMessageText]}>{item.text}</Text> : null}
           <Text style={[styles.messageTime, isOwn && styles.ownMessageTime]}>
@@ -369,17 +550,45 @@ export default function ChatScreen() {
             <View style={styles.typingDots}><View style={styles.dot} /><View style={[styles.dot, { opacity: 0.7 }]} /><View style={[styles.dot, { opacity: 0.4 }]} /></View>
           </View>
         )}
-        <View style={styles.inputBar}>
-          <TouchableOpacity style={styles.attachButton} onPress={() => setShowAttach(true)}>
-            <Ionicons name="add-circle" size={28} color={COLORS.primary} />
-          </TouchableOpacity>
-          <TextInput style={styles.textInput} placeholder="Type a message..." placeholderTextColor={COLORS.textLight}
-            value={text} onChangeText={handleTextChange} multiline maxLength={1000} />
-          <TouchableOpacity style={[styles.sendButton, (!text.trim() || sending) && styles.sendButtonDisabled]}
-            onPress={sendMessage} disabled={!text.trim() || sending}>
-            <Ionicons name="send" size={20} color={COLORS.white} />
-          </TouchableOpacity>
-        </View>
+        {isRecording ? (
+          <View style={styles.inputBar}>
+            <TouchableOpacity onPress={cancelRecording} style={{ paddingHorizontal: SPACING.md, paddingBottom: 7 }}>
+              <Ionicons name="trash-outline" size={24} color={COLORS.error} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingBottom: 7 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.error }} />
+              <Text style={{ ...FONTS.regular, color: COLORS.error, fontWeight: '600' }}>
+                {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+              </Text>
+              <Text style={{ ...FONTS.caption, color: COLORS.textSecondary }}>Recording...</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.sendButton, { backgroundColor: COLORS.success || '#10B981' }]}
+              onPress={stopAndSendRecording}
+            >
+              <Ionicons name="send" size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.inputBar}>
+            <TouchableOpacity style={styles.attachButton} onPress={() => setShowAttach(true)}>
+              <Ionicons name="add-circle" size={28} color={COLORS.primary} />
+            </TouchableOpacity>
+            <TextInput style={styles.textInput} placeholder="Type a message..." placeholderTextColor={COLORS.textLight}
+              value={text} onChangeText={handleTextChange} multiline maxLength={1000} />
+            {text.trim() ? (
+              <TouchableOpacity style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+                onPress={sendMessage} disabled={sending}>
+                <Ionicons name="send" size={20} color={COLORS.white} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.sendButton, { backgroundColor: COLORS.secondary || '#F43F5E' }]}
+                onPress={startRecording} disabled={sending}>
+                <Ionicons name="mic" size={22} color={COLORS.white} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       <Modal visible={showMenu} animationType="fade" transparent>
@@ -443,6 +652,28 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Fullscreen Image Viewer */}
+      <Modal visible={!!fullscreenImage} animationType="fade" transparent>
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}
+          onPress={() => setFullscreenImage(null)}
+        >
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 8 }}
+            onPress={() => setFullscreenImage(null)}
+          >
+            <Ionicons name="close" size={30} color={COLORS.white} />
+          </TouchableOpacity>
+          {fullscreenImage && (
+            <Image
+              source={{ uri: fullscreenImage }}
+              style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.75 }}
+              resizeMode="contain"
+            />
+          )}
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );

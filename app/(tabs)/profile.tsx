@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
   Switch,
+  Platform,
   Modal,
   FlatList,
   ActivityIndicator,
@@ -116,13 +117,28 @@ export default function ProfileScreen() {
       }
       if (result.canceled || !result.assets?.length) return;
       setUploading(true);
-      const formData = new FormData();
-      for (const asset of result.assets) {
-        const ext = asset.uri.split('.').pop() || 'jpg';
-        await appendFileToFormData(formData, 'photos', asset.uri, `photo-${Date.now()}.${ext}`, `image/${ext}`);
+
+      console.log('Selected assets:', result);
+
+      if (Platform.OS === 'web') {
+        const formData = new FormData();
+        for (const asset of result.assets) {
+          const mimeType = asset.mimeType || 'image/jpeg';
+          const ext = mimeType.split('/').pop() || 'jpg';
+          await appendFileToFormData(formData, 'photos', asset.uri, `photo-${Date.now()}.${ext}`, mimeType);
+        }
+        const data = await api.uploadPhotos(formData);
+        setProfile((prev: any) => prev ? { ...prev, photos: data.photos } : prev);
+      } else {
+        // On native, upload one at a time using FileSystem.uploadAsync
+        let data: any;
+        for (const asset of result.assets) {
+          const mimeType = asset.mimeType || 'image/jpeg';
+          const ext = mimeType.split('/').pop() || 'jpg';
+          data = await api.uploadPhotos(asset.uri, `photo-${Date.now()}.${ext}`, mimeType);
+        }
+        if (data) setProfile((prev: any) => prev ? { ...prev, photos: data.photos } : prev);
       }
-      const data = await api.uploadPhotos(formData);
-      setProfile((prev: any) => prev ? { ...prev, photos: data.photos } : prev);
       Alert.alert('Success', 'Photos uploaded!');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to upload');

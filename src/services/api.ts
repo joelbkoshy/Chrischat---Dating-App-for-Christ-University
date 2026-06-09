@@ -23,6 +23,7 @@ export const getImageUrl = (path: string) => {
 };
 
 // Helper: create a cross-platform FormData entry from an image picker asset URI
+// Only used on web; on native we use the RN FormData { uri, type, name } convention
 export async function appendFileToFormData(
   formData: FormData,
   fieldName: string,
@@ -30,20 +31,50 @@ export async function appendFileToFormData(
   fileName: string,
   mimeType: string,
 ) {
-  if (Platform.OS === 'web') {
-    // On web, fetch the URI (blob/data URL) and append as a File
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    formData.append(fieldName, new File([blob], fileName, { type: mimeType }));
-  } else {
-    // On native RN, FormData accepts this shape directly
-    // (do NOT fetch → blob, RN doesn't support ArrayBuffer blobs in FormData)
-    (formData as any).append(fieldName, {
-      uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
-      name: fileName,
-      type: mimeType,
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  formData.append(fieldName, new File([blob], fileName, { type: mimeType }));
+}
+
+// Native file upload using RN FormData URI convention (no Blob/ArrayBuffer needed)
+async function nativeFileUpload(
+  endpoint: string,
+  fileUri: string,
+  fieldName: string,
+  fileName: string,
+  mimeType: string,
+  token: string | null,
+  extraFields?: Record<string, string>,
+): Promise<any> {
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const formData = new FormData();
+  // React Native's FormData accepts { uri, type, name } objects for file uploads
+  // without creating Blob/ArrayBuffer (handled natively by the RN networking layer)
+  formData.append(fieldName, {
+    uri: fileUri,
+    type: mimeType,
+    name: fileName,
+  } as any);
+
+  if (extraFields) {
+    Object.entries(extraFields).forEach(([key, value]) => {
+      formData.append(key, value);
     });
   }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || 'Upload failed');
+  }
+  return data;
 }
 
 class ApiService {
@@ -162,8 +193,14 @@ class ApiService {
     return this.request(`/profile/keys/${encodeURIComponent(userId)}`);
   }
 
-  async uploadPhotos(formData: FormData) {
-    return this.uploadRequest('/profile/photos', formData);
+  async uploadPhotos(formData: FormData): Promise<any>;
+  async uploadPhotos(fileUri: string, fileName: string, mimeType: string): Promise<any>;
+  async uploadPhotos(formDataOrUri: FormData | string, fileName?: string, mimeType?: string) {
+    if (Platform.OS !== 'web' && typeof formDataOrUri === 'string') {
+      const token = await this.getToken();
+      return nativeFileUpload('/profile/photos', formDataOrUri, 'photos', fileName!, mimeType!, token);
+    }
+    return this.uploadRequest('/profile/photos', formDataOrUri as FormData);
   }
 
   async deletePhoto(index: number) {
@@ -264,12 +301,38 @@ class ApiService {
     });
   }
 
-  async sendImageMessage(matchId: string, formData: FormData) {
-    return this.uploadRequest(`/chat/${encodeURIComponent(matchId)}/image`, formData);
+  async sendImageMessage(matchId: string, fileUri: string, fileName: string, mimeType: string): Promise<any>;
+  async sendImageMessage(matchId: string, formData: FormData): Promise<any>;
+  async sendImageMessage(matchId: string, formDataOrUri: FormData | string, fileName?: string, mimeType?: string) {
+    const endpoint = `/chat/${encodeURIComponent(matchId)}/image`;
+    if (Platform.OS !== 'web' && typeof formDataOrUri === 'string') {
+      const token = await this.getToken();
+      return nativeFileUpload(endpoint, formDataOrUri, 'image', fileName!, mimeType!, token);
+    }
+    return this.uploadRequest(endpoint, formDataOrUri as FormData);
   }
 
-  async sendVideoMessage(matchId: string, formData: FormData) {
-    return this.uploadRequest(`/chat/${encodeURIComponent(matchId)}/video`, formData);
+  async sendVideoMessage(matchId: string, fileUri: string, fileName: string, mimeType: string): Promise<any>;
+  async sendVideoMessage(matchId: string, formData: FormData): Promise<any>;
+  async sendVideoMessage(matchId: string, formDataOrUri: FormData | string, fileName?: string, mimeType?: string) {
+    const endpoint = `/chat/${encodeURIComponent(matchId)}/video`;
+    if (Platform.OS !== 'web' && typeof formDataOrUri === 'string') {
+      const token = await this.getToken();
+      return nativeFileUpload(endpoint, formDataOrUri, 'video', fileName!, mimeType!, token);
+    }
+    return this.uploadRequest(endpoint, formDataOrUri as FormData);
+  }
+
+  async sendAudioMessage(matchId: string, fileUri: string, fileName: string, mimeType: string, duration?: number): Promise<any>;
+  async sendAudioMessage(matchId: string, formData: FormData): Promise<any>;
+  async sendAudioMessage(matchId: string, formDataOrUri: FormData | string, fileName?: string, mimeType?: string, duration?: number) {
+    const endpoint = `/chat/${encodeURIComponent(matchId)}/audio`;
+    if (Platform.OS !== 'web' && typeof formDataOrUri === 'string') {
+      const token = await this.getToken();
+      const extra = duration !== undefined ? { duration: String(duration) } : undefined;
+      return nativeFileUpload(endpoint, formDataOrUri, 'audio', fileName!, mimeType!, token, extra);
+    }
+    return this.uploadRequest(endpoint, formDataOrUri as FormData);
   }
 
   async markMessagesRead(matchId: string) {

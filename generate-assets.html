@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generate ChrisChat Assets</title></head>
+<body>
+<h2>Click each button to download the asset</h2>
+<button onclick="generateIcon(1024, 1024, 'icon.png')">Download icon.png (1024x1024)</button><br><br>
+<button onclick="generateIcon(48, 48, 'favicon.png')">Download favicon.png (48x48)</button><br><br>
+<button onclick="generateSplashIcon(200, 200, 'splash-icon.png')">Download splash-icon.png (200x200)</button><br><br>
+<button onclick="generateAdaptiveForeground()">Download android-icon-foreground.png (1024x1024)</button><br><br>
+<button onclick="generateAdaptiveBackground()">Download android-icon-background.png (1024x1024)</button><br><br>
+<button onclick="generateMonochrome()">Download android-icon-monochrome.png (1024x1024)</button><br><br>
+<canvas id="preview" width="1024" height="1024" style="border:1px solid #ccc; max-width:400px;"></canvas>
+
+<script>
+function drawHeart(ctx, x, y, size) {
+  ctx.beginPath();
+  const topY = y - size * 0.4;
+  ctx.moveTo(x, y + size * 0.3);
+  ctx.bezierCurveTo(x - size * 0.5, y - size * 0.1, x - size * 0.5, topY, x - size * 0.25, topY);
+  ctx.bezierCurveTo(x - size * 0.05, topY, x, y - size * 0.1, x, y - size * 0.1);
+  ctx.bezierCurveTo(x, y - size * 0.1, x + size * 0.05, topY, x + size * 0.25, topY);
+  ctx.bezierCurveTo(x + size * 0.5, topY, x + size * 0.5, y - size * 0.1, x, y + size * 0.3);
+  ctx.closePath();
+}
+
+function drawCross(ctx, x, y, size) {
+  const w = size * 0.12;
+  const h = size * 0.35;
+  ctx.beginPath();
+  // vertical bar
+  ctx.roundRect(x - w/2, y - h/2, w, h, w * 0.2);
+  // horizontal bar
+  ctx.roundRect(x - h * 0.35, y - h * 0.18, h * 0.7, w, w * 0.2);
+  ctx.fill();
+}
+
+function drawChatBubble(ctx, x, y, size) {
+  const w = size * 0.6;
+  const h = size * 0.45;
+  const r = size * 0.1;
+  ctx.beginPath();
+  ctx.roundRect(x - w/2, y - h/2, w, h, r);
+  ctx.fill();
+  // tail
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.15, y + h/2 - 1);
+  ctx.lineTo(x - w * 0.3, y + h/2 + size * 0.08);
+  ctx.lineTo(x + w * 0.05, y + h/2 - 1);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawLogo(ctx, cx, cy, size, withBg) {
+  if (withBg) {
+    // Gradient background
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, '#E91E63');
+    grad.addColorStop(0.5, '#FF5252');
+    grad.addColorStop(1, '#FF8A80');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, size, size, size * 0.22);
+    ctx.fill();
+  }
+
+  // Heart
+  const heartSize = size * 0.45;
+  drawHeart(ctx, cx, cy + size * 0.02, heartSize);
+  const heartGrad = ctx.createLinearGradient(cx, cy - heartSize * 0.4, cx, cy + heartSize * 0.3);
+  heartGrad.addColorStop(0, withBg ? '#FFFFFF' : '#E91E63');
+  heartGrad.addColorStop(1, withBg ? '#FFE0E0' : '#FF5252');
+  ctx.fillStyle = heartGrad;
+  ctx.fill();
+
+  // Chat bubble inside heart
+  ctx.fillStyle = withBg ? '#E91E63' : '#FFFFFF';
+  drawChatBubble(ctx, cx, cy - size * 0.02, size * 0.28);
+
+  // Cross inside bubble
+  ctx.fillStyle = withBg ? '#FFFFFF' : '#E91E63';
+  drawCross(ctx, cx, cy - size * 0.04, size * 0.28);
+}
+
+function generateIcon(w, h, filename) {
+  const canvas = document.getElementById('preview');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  drawLogo(ctx, w/2, h/2, w, true);
+  download(canvas, filename);
+}
+
+function generateSplashIcon(w, h, filename) {
+  const canvas = document.getElementById('preview');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  drawLogo(ctx, w/2, h/2, w, false);
+  download(canvas, filename);
+}
+
+function generateAdaptiveForeground() {
+  const s = 1024;
+  const canvas = document.getElementById('preview');
+  canvas.width = s; canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, s, s);
+  // Adaptive icons have safe zone in center 66%
+  const inset = s * 0.17;
+  const iconSize = s - inset * 2;
+  ctx.save();
+  ctx.translate(inset, inset);
+  
+  const cx = iconSize / 2;
+  const cy = iconSize / 2;
+  // Heart
+  const heartSize = iconSize * 0.45;
+  drawHeart(ctx, cx, cy + iconSize * 0.02, heartSize);
+  const heartGrad = ctx.createLinearGradient(cx, cy - heartSize * 0.4, cx, cy + heartSize * 0.3);
+  heartGrad.addColorStop(0, '#E91E63');
+  heartGrad.addColorStop(1, '#FF5252');
+  ctx.fillStyle = heartGrad;
+  ctx.fill();
+  
+  ctx.fillStyle = '#FFFFFF';
+  drawChatBubble(ctx, cx, cy - iconSize * 0.02, iconSize * 0.28);
+  
+  ctx.fillStyle = '#E91E63';
+  drawCross(ctx, cx, cy - iconSize * 0.04, iconSize * 0.28);
+  
+  ctx.restore();
+  download(canvas, 'android-icon-foreground.png');
+}
+
+function generateAdaptiveBackground() {
+  const s = 1024;
+  const canvas = document.getElementById('preview');
+  canvas.width = s; canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, s, s);
+  grad.addColorStop(0, '#FFF0F3');
+  grad.addColorStop(1, '#FFE0E6');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, s, s);
+  download(canvas, 'android-icon-background.png');
+}
+
+function generateMonochrome() {
+  const s = 1024;
+  const canvas = document.getElementById('preview');
+  canvas.width = s; canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, s, s);
+  const inset = s * 0.17;
+  const iconSize = s - inset * 2;
+  ctx.save();
+  ctx.translate(inset, inset);
+  
+  const cx = iconSize / 2;
+  const cy = iconSize / 2;
+  const heartSize = iconSize * 0.45;
+  drawHeart(ctx, cx, cy + iconSize * 0.02, heartSize);
+  ctx.fillStyle = '#000000';
+  ctx.fill();
+  
+  ctx.fillStyle = '#FFFFFF';
+  drawChatBubble(ctx, cx, cy - iconSize * 0.02, iconSize * 0.28);
+  
+  ctx.fillStyle = '#000000';
+  drawCross(ctx, cx, cy - iconSize * 0.04, iconSize * 0.28);
+  
+  ctx.restore();
+  download(canvas, 'android-icon-monochrome.png');
+}
+
+function download(canvas, filename) {
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+</script>
+</body>
+</html>

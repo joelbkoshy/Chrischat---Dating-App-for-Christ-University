@@ -190,6 +190,16 @@ router.post('/like/:id', auth, async (req, res) => {
     // Check if it's a mutual like (match!)
     const isMatch = targetUser.likes.some(id => id.toString() === req.user._id.toString());
 
+    // Notify the target user that someone liked them (only if not a match yet)
+    if (!isMatch) {
+      const likeTargetSocket = getReceiverSocket(targetId);
+      if (likeTargetSocket) {
+        io.to(likeTargetSocket).emit('like_received', {
+          from: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+        });
+      }
+    }
+
     if (isMatch) {
       const existingMatch = await Match.findOne({
         users: { $all: [req.user._id, targetId] },
@@ -207,11 +217,13 @@ router.post('/like/:id', auth, async (req, res) => {
         }
 
         // Notify the other user about the match via socket
-        io.emit('match_notification', {
-          matchId: match._id,
-          user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
-          targetUserId: targetId,
-        });
+        const targetSocket = getReceiverSocket(targetId);
+        if (targetSocket) {
+          io.to(targetSocket).emit('match_notification', {
+            matchId: match._id,
+            user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+          });
+        }
 
         return res.json({
           matched: true,
@@ -280,10 +292,12 @@ router.post('/superlike/:id', auth, async (req, res) => {
     await currentUser.save();
 
     // Notify the target about the super like
-    io.emit('super_like_received', {
-      from: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
-      targetUserId: targetId,
-    });
+    const targetSocket = getReceiverSocket(targetId);
+    if (targetSocket) {
+      io.to(targetSocket).emit('super_like_received', {
+        from: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+      });
+    }
 
     // Check if mutual
     const isMatch = targetUser.likes.some(id => id.toString() === req.user._id.toString());
@@ -300,11 +314,13 @@ router.post('/superlike/:id', auth, async (req, res) => {
         });
 
         // Notify about match
-        io.emit('match_notification', {
-          matchId: match._id,
-          user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
-          targetUserId: targetId,
-        });
+        const targetSocket2 = getReceiverSocket(targetId);
+        if (targetSocket2) {
+          io.to(targetSocket2).emit('match_notification', {
+            matchId: match._id,
+            user: { _id: currentUser._id, name: currentUser.name, photos: currentUser.photos },
+          });
+        }
       }
 
       return res.json({
@@ -408,7 +424,7 @@ router.get('/', auth, async (req, res) => {
 
         const lastMessage = await Message.findOne({ match: match._id })
           .sort({ createdAt: -1 })
-          .select('text type createdAt sender');
+          .select('text type encrypted createdAt sender');
 
         const unreadCount = await Message.countDocuments({
           match: match._id,
@@ -420,6 +436,15 @@ router.get('/', auth, async (req, res) => {
         const currentUser = await User.findById(req.user._id).select('campus');
         const sameCampus = currentUser.campus === otherUser.campus;
 
+        let previewText = '';
+        if (lastMessage) {
+          if (lastMessage.type === 'image') previewText = '📷 Photo';
+          else if (lastMessage.type === 'video') previewText = '🎬 Video';
+          else if (lastMessage.type === 'audio') previewText = '🎙️ Voice message';
+          else if (lastMessage.encrypted) previewText = '🔒 Encrypted message';
+          else previewText = lastMessage.text;
+        }
+
         return {
           _id: match._id,
           user: otherUser,
@@ -430,7 +455,7 @@ router.get('/', auth, async (req, res) => {
           sameCampus,
           lastMessage: lastMessage
             ? {
-                text: lastMessage.type === 'image' ? '📷 Photo' : lastMessage.text,
+                text: previewText,
                 createdAt: lastMessage.createdAt,
                 isOwn: lastMessage.sender.toString() === req.user._id.toString(),
               }

@@ -24,7 +24,7 @@ const chatStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: 'chrischat/chat',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'avi'],
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'avi', 'm4a', 'mp3', 'aac', 'wav', 'ogg'],
     resource_type: 'auto',
   },
 });

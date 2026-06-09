@@ -23,11 +23,13 @@ const messageSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'icebreaker'],
+      enum: ['text', 'image', 'video', 'audio', 'icebreaker'],
       default: 'text',
     },
     imageUrl: String,
     videoUrl: String,
+    audioUrl: String,
+    audioDuration: Number,
     read: {
       type: Boolean,
       default: false,

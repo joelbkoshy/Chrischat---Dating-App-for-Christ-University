@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../services/api';
+import { io, Socket } from 'socket.io-client';
+import api, { SOCKET_URL } from '../services/api';
 import { getOrCreateKeyPair } from '../services/crypto';
 
 interface User {
@@ -36,10 +38,53 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const globalSocketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     loadUser();
   }, []);
+
+  // Global socket: connect when user is set, disconnect on logout
+  useEffect(() => {
+    if (!user?._id) {
+      globalSocketRef.current?.disconnect();
+      globalSocketRef.current = null;
+      return;
+    }
+
+    const socket = io(SOCKET_URL);
+    globalSocketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('user_online', user._id);
+    });
+
+    socket.on('match_notification', (data: { matchId: string; user: { _id: string; name: string; photos?: string[] } }) => {
+      Alert.alert(
+        '🎉 New Match!',
+        `You matched with ${data.user.name}! Start chatting now.`,
+      );
+    });
+
+    socket.on('like_received', (data: { from: { _id: string; name: string } }) => {
+      Alert.alert(
+        '💜 Someone Likes You!',
+        `${data.from.name} liked your profile! Like them back to match.`,
+      );
+    });
+
+    socket.on('super_like_received', (data: { from: { _id: string; name: string; photos?: string[] } }) => {
+      Alert.alert(
+        '⭐ Super Like!',
+        `${data.from.name} sent you a Super Like!`,
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+      globalSocketRef.current = null;
+    };
+  }, [user?._id]);
 
   const initE2EEKeys = async () => {
     try {
