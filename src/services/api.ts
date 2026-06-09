@@ -30,10 +30,20 @@ export async function appendFileToFormData(
   fileName: string,
   mimeType: string,
 ) {
-  // fetch works with file://, content://, data:, and http(s):// URIs on all platforms
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  formData.append(fieldName, blob, fileName);
+  if (Platform.OS === 'web') {
+    // On web, fetch the URI (blob/data URL) and append as a File
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    formData.append(fieldName, new File([blob], fileName, { type: mimeType }));
+  } else {
+    // On native RN, FormData accepts this shape directly
+    // (do NOT fetch → blob, RN doesn't support ArrayBuffer blobs in FormData)
+    (formData as any).append(fieldName, {
+      uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+      name: fileName,
+      type: mimeType,
+    });
+  }
 }
 
 class ApiService {
