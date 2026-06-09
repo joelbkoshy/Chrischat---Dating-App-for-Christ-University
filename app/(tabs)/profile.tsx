@@ -12,6 +12,7 @@ import {
   Modal,
   FlatList,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -20,6 +21,31 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../src/context/AuthContext';
 import api, { getImageUrl, appendFileToFormData } from '../../src/services/api';
 import { COLORS, SPACING, RADIUS, FONTS, SHADOWS } from '../../src/constants/theme';
+
+// Cross-platform alert helpers
+const crossAlert = (title: string, message: string) => {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+};
+
+const crossConfirm = (
+  title: string,
+  message: string,
+  onConfirm: () => void,
+  confirmText = 'OK',
+) => {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`${title}\n${message}`)) onConfirm();
+  } else {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: confirmText, style: 'destructive', onPress: onConfirm },
+    ]);
+  }
+};
 
 const BADGE_ICONS: Record<string, string> = {
   'First Swipe': '👆',
@@ -37,6 +63,7 @@ export default function ProfileScreen() {
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [boosting, setBoosting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showPhotoSource, setShowPhotoSource] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -61,17 +88,10 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/login');
-        },
-      },
-    ]);
+    crossConfirm('Logout', 'Are you sure you want to logout?', async () => {
+      await logout();
+      router.replace('/login');
+    }, 'Logout');
   };
 
   const toggleVisibility = async () => {
@@ -79,40 +99,37 @@ export default function ProfileScreen() {
       const result = await api.toggleVisibility();
       setIsVisible(result.isVisible);
     } catch {
-      Alert.alert('Error', 'Failed to toggle visibility');
+      crossAlert('Error', 'Failed to toggle visibility');
     }
   };
 
   const handleBoost = async () => {
-    Alert.alert('Boost Profile', 'Your profile will be shown to more people for 30 minutes!', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Boost!',
-        onPress: async () => {
-          setBoosting(true);
-          try {
-            await api.boostProfile();
-            Alert.alert('Boosted!', 'Your profile is now boosted for 30 minutes!');
-          } catch {
-            Alert.alert('Error', 'Failed to boost');
-          } finally {
-            setBoosting(false);
-          }
-        },
-      },
-    ]);
+    crossConfirm('Boost Profile', 'Your profile will be shown to more people for 30 minutes!', async () => {
+      setBoosting(true);
+      try {
+        await api.boostProfile();
+        crossAlert('Boosted!', 'Your profile is now boosted for 30 minutes!');
+      } catch {
+        crossAlert('Error', 'Failed to boost');
+      } finally {
+        setBoosting(false);
+      }
+    }, 'Boost!');
   };
 
   const pickAndUploadPhoto = async (source: 'library' | 'camera') => {
+    setShowPhotoSource(false);
     try {
       let result: ImagePicker.ImagePickerResult;
       if (source === 'camera') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) { Alert.alert('Permission required', 'Camera access is needed.'); return; }
+        if (!perm.granted) { crossAlert('Permission required', 'Camera access is needed.'); return; }
         result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [4, 5] });
       } else {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) { Alert.alert('Permission required', 'Media library access is needed.'); return; }
+        if (Platform.OS !== 'web') {
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) { crossAlert('Permission required', 'Media library access is needed.'); return; }
+        }
         result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [4, 5], allowsMultipleSelection: true, selectionLimit: 6 });
       }
       if (result.canceled || !result.assets?.length) return;
@@ -139,31 +156,26 @@ export default function ProfileScreen() {
         }
         if (data) setProfile((prev: any) => prev ? { ...prev, photos: data.photos } : prev);
       }
-      Alert.alert('Success', 'Photos uploaded!');
+      crossAlert('Success', 'Photos uploaded!');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to upload');
+      crossAlert('Error', error.message || 'Failed to upload');
     } finally {
       setUploading(false);
     }
   };
 
   const deletePhoto = async (index: number) => {
-    Alert.alert('Delete Photo', 'Remove this photo?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          try {
-            await api.deletePhoto(index);
-            setProfile((prev: any) => {
-              if (!prev) return prev;
-              const photos = [...prev.photos];
-              photos.splice(index, 1);
-              return { ...prev, photos };
-            });
-          } catch { Alert.alert('Error', 'Failed to delete photo'); }
-        },
-      },
-    ]);
+    crossConfirm('Delete Photo', 'Remove this photo?', async () => {
+      try {
+        await api.deletePhoto(index);
+        setProfile((prev: any) => {
+          if (!prev) return prev;
+          const photos = [...prev.photos];
+          photos.splice(index, 1);
+          return { ...prev, photos };
+        });
+      } catch { crossAlert('Error', 'Failed to delete photo'); }
+    }, 'Delete');
   };
 
   const loadBlockedUsers = async () => {
@@ -172,7 +184,7 @@ export default function ProfileScreen() {
       setBlockedUsers(data);
       setShowBlocked(true);
     } catch {
-      Alert.alert('Error', 'Failed to load blocked users');
+      crossAlert('Error', 'Failed to load blocked users');
     }
   };
 
@@ -181,7 +193,7 @@ export default function ProfileScreen() {
       await api.unblockUser(id);
       setBlockedUsers((prev) => prev.filter((u) => u._id !== id));
     } catch {
-      Alert.alert('Error', 'Failed to unblock');
+      crossAlert('Error', 'Failed to unblock');
     }
   };
 
@@ -239,11 +251,11 @@ export default function ProfileScreen() {
             ))}
             {(!displayProfile?.photos || displayProfile.photos.length < 6) && (
               <TouchableOpacity style={styles.photoAddButton} onPress={() => {
-                Alert.alert('Add Photo', 'Choose a source', [
-                  { text: 'Camera', onPress: () => pickAndUploadPhoto('camera') },
-                  { text: 'Library', onPress: () => pickAndUploadPhoto('library') },
-                  { text: 'Cancel', style: 'cancel' },
-                ]);
+                if (Platform.OS === 'web') {
+                  pickAndUploadPhoto('library');
+                } else {
+                  setShowPhotoSource(true);
+                }
               }} disabled={uploading}>
                 {uploading ? (
                   <ActivityIndicator color={COLORS.primary} />
@@ -363,6 +375,26 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Photo Source Picker Modal */}
+      <Modal visible={showPhotoSource} animationType="fade" transparent>
+        <Pressable style={styles.menuOverlay} onPress={() => setShowPhotoSource(false)}>
+          <View style={styles.menuContent}>
+            <Text style={{ ...FONTS.h3, color: COLORS.text, marginBottom: SPACING.md }}>Add Photo</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => pickAndUploadPhoto('library')}>
+              <Ionicons name="images" size={22} color={COLORS.primary} />
+              <Text style={styles.menuItemText}>Photo Library</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => pickAndUploadPhoto('camera')}>
+              <Ionicons name="camera" size={22} color={COLORS.primary} />
+              <Text style={styles.menuItemText}>Take Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.menuItem, { marginTop: SPACING.sm }]} onPress={() => setShowPhotoSource(false)}>
+              <Text style={[styles.menuItemText, { color: COLORS.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Blocked Users Modal */}
       <Modal visible={showBlocked} animationType="slide" transparent>
@@ -500,4 +532,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.md,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
+  menuOverlay: {
+    flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end',
+  },
+  menuContent: {
+    backgroundColor: COLORS.surface, borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl, padding: SPACING.lg,
+  },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
+    paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  menuItemText: { ...FONTS.regular, color: COLORS.text, fontSize: 15 },
 });
